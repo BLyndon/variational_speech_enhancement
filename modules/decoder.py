@@ -6,24 +6,25 @@ class Decoder(Layer):
 
         Parameters:
         latent_dim (int): Dimension of the latent space
-        outp_shape (tuple): input shape
-        net (string): neural network architecture
-        info (bool): print info at initialization
+        outp_shape (tuple): Output shape
+        net (string): Neural network architecture. Choose from {"conv", "mlp", "clean_speech"}
+        info (bool): if true print info at initialization
     '''
 
     def __init__(self,
-                 latent_dim=2,
-                 outp_shape=(28, 28, 1),
-                 net='conv',
+                 latent_dim=8,
+                 outp_shape=(513, 1),
+                 net='clean_speech',
                  info=False,
                  **kwargs):
         super(Decoder, self).__init__(**kwargs)
+
         # Initialize Shape & Architecture
         self.outp_shape = outp_shape
         self.latent_dim = latent_dim
         self.net = net
-        assert self.net == 'conv' or self.net == 'mlp', print(
-            'Choose net from {"conv", "mlp"}')
+        assert self.net in ['conv', 'mlp', 'clean_speech'], print(
+            'Choose net from {"conv", "mlp", "clean_speech"}')
 
         # Initialize Layers
         if self.net == 'conv':

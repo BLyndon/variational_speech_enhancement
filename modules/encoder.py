@@ -6,25 +6,26 @@ class Encoder(Layer):
     '''Encoder class:
 
         Parameters:
-        inp_shape (tuple): input shape
+        inp_shape (tuple): Input shape
         latent_dim (int): Dimension of the latent space
-        net (string): neural network architecture
-        info (bool): print info at initialization
+        net (string): Neural network architecture. Choose from {"conv", "mlp", "clean_speech"}
+        info (bool): if true print info at initialization
     '''
 
     def __init__(self,
-                 inp_shape=(28, 28, 1),
-                 latent_dim=2,
-                 net='conv',
+                 inp_shape=(513, 1),
+                 latent_dim=8,
+                 net='clean_speech',
                  info=False,
                  **kwargs):
         super(Encoder, self).__init__(**kwargs)
+
         # Initialize Shape & Architecture
         self.inp_shape = inp_shape
         self.latent_dim = latent_dim
         self.net = net
-        assert self.net == 'conv' or self.net == 'mlp', print(
-            'Choose net from {"conv", "mlp"}')
+        assert self.net in ['conv', 'mlp', 'clean_speech'], print(
+            'Choose net from {"conv", "mlp", "clean_speech"}')
 
         # Initialize Layers
         self.flatten = Flatten()
