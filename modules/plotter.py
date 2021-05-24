@@ -23,7 +23,7 @@ class Plotter:
         axs[0].set_xlabel('Epochs')
         axs[1].set_xlabel('Epochs')
 
-        axs[0].set_ylabel('NELBO')
+        axs[0].set_ylabel('ELBO')
         axs[1].set_ylabel('Accuracy')
 
         train_loss = np.array(model.history)[:, 0]
