@@ -15,36 +15,40 @@ def save_data(obj, file_path):
     '''
     with open(file_path, 'wb') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+    print('Save pickle file to "{}"'.format(file_path))
 
 
 def load_data(file_path):
     '''
     Load pickle-file.
     '''
+    print('Load pickle file "{}"'.format(file_path))
     with open(file_path, 'rb') as f:
         return pickle.load(f)
 
 
-def get_wav_paths(wav_dir, file_paths=[]):
+def get_wav_paths(wav_dir):
     '''
     - Collect wav-file paths and return them as a list.
     '''
+    file_paths = list()
+    print('Get wave-file paths from\n "{}"'.format(wav_dir))
     for root, _, files in os.walk(wav_dir):
         for file in files:
             if file.endswith('.wav'):
                 file_paths.append(os.path.join(root, file))
-    return file_paths
+    return list(set(file_paths))
 
 
-def write_transform_from_filelist(file_paths, fname, nperseg=1024, data={'set': [], 'dialect': [],
-                                                                         'speaker': [], 'file': [],
-                                                                         'X_pow': [], 'X_phase': [],
-                                                                         'f': [], 't': []}):
+def write_transform_from_filelist(file_paths, fname, nperseg=1024):
     """
     - Read in wav-files from a file list.
     - Transform to STFT-domain.
     - Save a dictionary containing all information about the wav-files.
     """
+    data = {'set': [], 'dialect': [],
+            'speaker': [], 'file': [],
+            'X': [], 'f': [], 't': []}
 
     N = len(file_paths)
     for n, file_path in enumerate(file_paths):
@@ -63,8 +67,7 @@ def write_transform_from_filelist(file_paths, fname, nperseg=1024, data={'set': 
         data['dialect'].append(dialect)
         data['speaker'].append(speaker)
         data['file'].append(file_name)
-        data['X_pow'].append(np.abs(X)**2)
-        data['X_phase'].append(np.angle(X))
+        data['X'].append(X)
         data['f'].append(f)
         data['t'].append(t)
 
@@ -78,12 +81,17 @@ def load_write_dataset_split(data_dir, nperseg=1024):
     - Save the dictionary as a pickle-file.
     '''
     for folder in ['train', 'test']:
-        paths = get_wav_paths(os.path.join(data_dir, folder.upper()))
+        fname = os.path.join(data_dir, '{}.pckl'.format(folder))
+        if os.path.isfile(fname):
+            print('File "{}.pckl" exists already, continue!'.format(folder))
+            continue
+        else:
+            paths = get_wav_paths(os.path.join(data_dir, folder.upper()))
 
-        print('{} shape: {}'.format(folder, len(paths)))
+            print('{} shape: {}'.format(folder, len(paths)))
 
-        write_transform_from_filelist(
-            paths, os.join.path(data_dir, '{}.pckl'.format(folder)), nperseg=nperseg)
+            write_transform_from_filelist(
+                paths, fname, nperseg=nperseg)
 
 
 def get_dataset_from_file(file_path, batch_size=128, buffer_size=-1):
@@ -93,9 +101,7 @@ def get_dataset_from_file(file_path, batch_size=128, buffer_size=-1):
     '''
     data_info = load_data(file_path)
 
-    X = data_info['X_pow'] * np.exp(1j * data_info['X_phase'])
-
-    X = np.hstack(X)
+    X = np.hstack(data_info['X'])
     num_freq = X.shape[0]
 
     print("Dataset shape: {}".format(X.shape))
