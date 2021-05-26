@@ -83,7 +83,7 @@ def load_write_dataset_split(data_dir, nperseg=1024):
     for folder in ['train', 'test']:
         fname = os.path.join(data_dir, '{}.pckl'.format(folder))
         if os.path.isfile(fname):
-            print('File "{}.pckl" exists already, continue!'.format(folder))
+            print('File "{}.pckl" already exists, continue!'.format(folder))
             continue
         else:
             paths = get_wav_paths(os.path.join(data_dir, folder.upper()))
@@ -101,15 +101,14 @@ def get_dataset_from_file(file_path, batch_size=128, buffer_size=-1):
     '''
     data_info = load_data(file_path)
 
-    X = np.hstack(data_info['X'])
-    num_freq = X.shape[0]
+    X = np.hstack(data_info['X']).T
 
     print("Dataset shape: {}".format(X.shape))
     ds_X = tf.data.Dataset.from_tensor_slices(X)
 
     if buffer_size > 0:
         ds_X = ds_X.shuffle(buffer_size)
-    return ds_X.batch(batch_size), num_freq
+    return ds_X.batch(batch_size)
 
 
 if __name__ == "__main__":
