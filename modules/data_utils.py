@@ -101,10 +101,10 @@ def get_dataset_from_file(file_path, batch_size=128, buffer_size=-1):
     '''
     data_info = load_data(file_path)
 
-    X = np.hstack(data_info['X']).T
+    X_sq = abs(np.hstack(data_info['X']).T)**2
 
-    print("Dataset shape: {}".format(X.shape))
-    ds_X = tf.data.Dataset.from_tensor_slices(X)
+    print("Dataset shape: {}".format(X_sq.shape))
+    ds_X = tf.data.Dataset.from_tensor_slices(X_sq)
 
     if buffer_size > 0:
         ds_X = ds_X.shuffle(buffer_size)
