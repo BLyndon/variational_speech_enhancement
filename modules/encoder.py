@@ -51,7 +51,6 @@ class Encoder(Layer):
             x = self.flatten(cx)
         elif self.net == 'clean_speech':
             x = self.flatten(x)
-            x = self.complex_norm(x)
             x = self.dense_hidden(x)
         elif self.net == 'mlp':
             x = self.flatten(x)
