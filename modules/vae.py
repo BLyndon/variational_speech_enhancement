@@ -66,9 +66,8 @@ class VAE(Model):
 
         self.progress = 'Progress - Runtime {:.2f} s:\n'
         self.progress += 'Epoch {}/{}, '
-        self.progress += 'Loss: {:.2f}, Accuracy: {:.2f}, '
+        self.progress += 'Loss: {:.2f}, '
         self.progress += 'Test Loss: {:.2f}, '
-        self.progress += 'Test Accuracy: {:.2f}, '
         self.progress += 'Time: {:.2f} s'
 
     def __call__(self, x, logits=True):
@@ -110,12 +109,8 @@ class VAE(Model):
         self.metrics_ = {}
         self.metrics_['train_loss'] = tf.keras.metrics.Mean(
             'NELBO_train', dtype=tf.float32)
-        self.metrics_['train_accuracy'] = tf.keras.metrics.BinaryAccuracy(
-            'BinaryAccuracy_train', threshold=0.5, dtype=tf.float32)
         self.metrics_['test_loss'] = tf.keras.metrics.Mean(
             'NELBO_test', dtype=tf.float32)
-        self.metrics_['test_accuracy'] = tf.keras.metrics.BinaryAccuracy(
-            'BinaryAccuracy_test', threshold=0.5, dtype=tf.float32)
         for key in self.metrics_.keys():
             print(" - " + key)
 
@@ -133,9 +128,8 @@ class VAE(Model):
         gradients = tape.gradient(loss, self.trainable_variables)
         optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         self.metrics_['train_loss'](loss)
-        self.metrics_['train_accuracy'].update_state(x, tf.math.sigmoid(x_out))
 
-    def fit(self, train_ds, test_ds, epochs=20, lr=1e-4, save=True):
+    def fit(self, train_ds, test_ds, epochs=20, lr=1e-4, plot_losses=False):
         self.optimizer = tf.keras.optimizers.Adam(lr)
 
         self.print_fit_info(epochs, lr)
@@ -143,7 +137,7 @@ class VAE(Model):
         elapsed_time = 0
         for epoch in range(1, epochs+1):
             start_time = time.time()
-            for train_x, _ in train_ds:
+            for train_x in train_ds:
                 self.train_step(train_x, self.optimizer)
             end_time = time.time()
             if self.train_summary_writer != None:
@@ -152,18 +146,14 @@ class VAE(Model):
                                       'train_loss'].result(), step=epoch)
                     tf.summary.scalar('accuracy', self.metrics_[
                                       'train_accuracy'].result(), step=epoch)
-            for test_x, _ in test_ds:
+            for test_x in test_ds:
                 x_out, mean, log_var = self.__call__(test_x, logits=True)
                 loss = self.loss_fn(test_x, x_out, mean, log_var)
                 self.metrics_['test_loss'](loss)
-                self.metrics_['test_accuracy'].update_state(
-                    test_x, tf.math.sigmoid(x_out))
             if self.test_summary_writer != None:
                 with self.test_summary_writer.as_default():
                     tf.summary.scalar('loss', self.metrics_[
                                       'test_loss'].result(), step=epoch)
-                    tf.summary.scalar('accuracy', self.metrics_[
-                                      'test_accuracy'].result(), step=epoch)
 
             display.clear_output(wait=False)
             elapsed_time += end_time - start_time
@@ -171,16 +161,12 @@ class VAE(Model):
                                        epoch,
                                        epochs,
                                        self.metrics_['train_loss'].result(),
-                                       self.metrics_[
-                                           'train_accuracy'].result()*100,
                                        self.metrics_['test_loss'].result(),
-                                       self.metrics_[
-                                           'test_accuracy'].result()*100,
                                        end_time - start_time))
-            self.history.append([self.metrics_['train_loss'].result(), self.metrics_['train_accuracy'].result(
-            )*100, self.metrics_['test_loss'].result(), self.metrics_['test_accuracy'].result()*100])
+            self.history.append(
+                [self.metrics_['train_loss'].result(), self.metrics_['test_loss'].result()])
 
-            if epoch > 1:
+            if epoch > 1 and plot_losses == True:
                 self.plotter.plot_losses(self)
 
             self.reset_metrics()
