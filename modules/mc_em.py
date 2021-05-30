@@ -1,7 +1,9 @@
-import tensorflow as tf
-import tensorflowprobability as tfp
-
 from function_tk import var_mixture, target_log_prob_fn, cost_Q
+import numpy as np
+import tensorflow as tf
+import tensorflow_probability as tfp
+
+tfd = tfp.distributions
 
 
 class MC_EM:
@@ -10,20 +12,34 @@ class MC_EM:
     """
 
     def __init__(self,
-                 vae, X_sq,
-                 Theta=None, K=10,
-                 dims=8, num_results=10,
-                 num_burning_steps=30, step_size=0.01,
+                 vae,
+                 train_ds,
+                 Theta=None,
+                 K=10,
+                 eps_sq=0.01,
+                 num_results=10,
+                 num_burning_steps=30,
                  num_leapfrog_steps=3):
 
         self.encoder = vae.encoder
         self.decoder = vae.decoder
         self.vae = vae
 
-        self.X_sq = X_sq
-        self.F, self.N = self.X_sq.shape
+        # Training data
+        self.train_ds = train_ds.unbatch()
+
+        self.N = self.train_ds.cardinality().numpy()
         self.K = K
-        self.Z = self.encoder(self.X_sq)[0]
+        for x_sq in self.train_ds.take(1):
+            self.F = x_sq.shape[0]
+
+        self.X = np.zeros((self.N, self.F))
+        self.Z = np.zeros((self.N, self.K))
+
+        for n, x_sq in enumerate(train_ds):
+            self.X[n, :] = x_sq
+        for n, x_sq in enumerate(train_ds):
+            self.Z[n, :] = self.encoder(x_sq)
 
         # Initialize training parameters
         if Theta == None:
@@ -34,33 +50,56 @@ class MC_EM:
             self.g = tf.ones((1, self.N))
         else:
             self.W, self.H, self.g = Theta
-        self.ones_T = tf.ones((X_sq.shape(0), 1))
+        self.ones_T = tf.ones((self.F, 1))
 
-        # Set Monte Carlo parameters
-        self.dims = dims
+        # Initialize Metropolos-Hastings parameters
+        self.eps_sq = eps_sq
         self.num_results = num_results
         self.num_burning_steps = num_burning_steps
+        self.num_leapfrog_steps = num_leapfrog_steps
 
-        self.hmc = tfp.mcmc.MetropolisHastings(
+    def single_E_step(self, x_sq, num_burning_steps=None, num_results=None):
+        """
+        - Initialize with encoded noisy signal or current Z-value
+        - Return chain of var_out
+        """
+        def target_log_prob_fn(x_sq, z):
+            var_out = tf.math.exp(self.vae(z)[0])
+
+            loc = tf.zeros([self.K])
+            scale_pr = tf.eye(self.K)
+            scale_lh = var_mixture(self.W, self.H, self.g, var_out)
+
+            prior = tfd.MultivariateNormalDiag(
+                loc=loc,
+                scale_identity_multiplier=scale_pr)
+            likelihood = tfd.MultivariateNormalDiag(
+                loc=loc,
+                scale_identity_multiplier=scale_lh)
+
+            return prior.log_prob(z) + likelihood.log_prob(x_sq)
+
+        if num_burning_steps == None:
+            num_burning_steps = self.num_burning_steps
+        if num_results == None:
+            num_results = self.num_results
+
+        hmc = tfp.mcmc.MetropolisHastings(
             tfp.mcmc.UncalibratedHamiltonianMonteCarlo(
-                target_log_prob_fn=target_log_prob_fn,
-                step_size=step_size,
-                num_leapfrog_steps=num_leapfrog_steps))
+                target_log_prob_fn=lambda z: target_log_prob_fn(x_sq, z),
+                step_size=self.eps_sq,
+                num_leapfrog_steps=self.num_leapfrog_steps))
 
-    def single_E_step(self):
-        """
-        - Initialize encoded noisy signal or current Z-value
-        - Return var_out
-        """
-        self.Z = tfp.mcmc.sample_chain(
-            num_results=self.num_results,
-            num_burnin_steps=self.num_burning_steps,
+        z_chain = tfp.mcmc.sample_chain(
+            num_results=num_results,
             current_state=self.Z,
-            kernel=self.hmc)
+            num_burnin_steps=num_burning_steps,
+            kernel=hmc)
+        self.Z = z_chain[-1]
 
-        return tf.math.exp(self.decoder(self.Z)[1])
+        return tf.math.exp(self.decoder(z_chain)[1])
 
-    def single_M_step(self, var_out):
+    def single_M_step(self, x_sq, var_out):
         """
         Perform single parameter update
         """
@@ -78,32 +117,44 @@ class MC_EM:
             return tf.transpose(self.g) * tf.math.sqrt(self.ones_T * XVV / (self.ones_T * VV))
 
         V_x = var_mixture(self.W, self.H, self.g, var_out)
-        V_sum = tf.reduce_mean(V_x, axis=-1)
-        XV_sq_sum = self.X_sq * tf.reduce_mean(V_x**2, axis=-1)
-        XVV = self.X_sq * tf.reduce_mean(var_out / V_x**2, axis=-1)
-        VV = tf.reduce_mean(var_out/V_x, axis=-1)
+        V_sum = tf.reduce_mean(V_x, axis=0)
+        XV_sq_sum = x_sq * tf.reduce_mean(V_x**2, axis=0)
+        XVV = x_sq * tf.reduce_mean(var_out / V_x**2, axis=0)
+        VV = tf.reduce_mean(var_out/V_x, axis=0)
 
-        self.H = update_H(XV_sq_sum, V_sum)
-        self.W = update_W(XV_sq_sum, V_sum)
-        self.g = update_g(XVV, VV)
+        H = update_H(XV_sq_sum, V_sum)
+        W = update_W(XV_sq_sum, V_sum)
+        g = update_g(XVV, VV)
 
-    def run_MC_EM(self, max_iter=1000, tol=1e-4, costs=[]):
+        return W, H, g
+
+    def run_MC_EM(self, max_iter=1000, tol=1e-4):
         """
         Run Monte Carlo Expectation Maximization
         """
-        var_out = tf.math.exp(self.decoder(self.Z))
-        costs.append(cost_Q(self.W, self.H, self.g,
-                            var_out, self.X_sq))
-        for n in range(max_iter):
-            var_out = self.single_E_step()
-            self.single_M_step(var_out)
+        # costs = []
 
-            costs.append(
-                cost_Q(cost_Q(self.W, self.H, self.g, var_out, self.X_sq)))
+        # for n in range(max_iter):
+        #     var_out_r_ds = self.train_ds.map(self.single_E_step)
+        #     self.W, self.H, self.g = self.single_M_step(var_out_r_ds)
 
-            if abs(costs[n]-costs[n+1]) < tol:
-                print("MC_EM converged after {} steps!".format(n+1))
-                break
+        #     costs.append(cost_Q(self.W, self.H, self.g, var_out, x_sq))
+
+        #     if n > 0 and abs(costs[n]-costs[n+1]) < tol:
+        #         print("MC_EM converged after {} steps!".format(n+1))
+        #         break
+
+    def S_reconst(self, X_complex_ds):
+        def s_hat(xfn):
+            z_samples = self.single_E_step()
+            var_out = tf.math.exp(self.encoder(z_samples))
+
+            V_s = self.g * var_out
+            V_x = var_mixture(self.W, self.H, self.g, var_out)
+
+            return tf.reduce_sum(V_s/V_x, axis=0) * xfn
+
+        return X_complex_ds.map(s_hat)
 
 
 if __name__ == "__main__":
