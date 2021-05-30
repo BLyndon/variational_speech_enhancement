@@ -17,7 +17,7 @@ class Plotter:
         fig, axs = plt.subplots(1, 1, figsize=figsize, sharey=False)
 
         fig.suptitle(
-            'Encoder: {} -- Decoder: {}'.format(model.encoder.net, model.decoder.net))
+            'Clean speech VAE')
         fig.tight_layout(pad=3.0)
 
         axs.set_xlabel('Epochs')
