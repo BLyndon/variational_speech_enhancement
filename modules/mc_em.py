@@ -133,15 +133,16 @@ class MC_EM:
         return z_chain
 
     def E_step(self):
-        log_var_R = tf.Variable(
+        # Axes need to be checked!
+        var_out_chain = tf.Variable(
             tf.zeros(self.N, self.F, self.num_results))
         for n, x in enumerate(self.dX):
-            z_n_R = self.single_E_step(x, self.Z[n])
-            self.Z[n] = z_n_R[-1]
-            log_var_R[n].assign(tf.math.exp(self.decoder(z_n_R)[1]))
-        return log_var_R
+            z_n_chain = self.single_E_step(x, self.Z[n])
+            self.Z[n] = z_n_chain[-1]
+            var_out_chain[n].assign(tf.math.exp(self.decoder(z_n_chain)[1]))
+        return var_out_chain
 
-    def single_M_step(self, x_sq, var_out_R):
+    def single_M_step(self, x_sq, var_out_n_R):
         """
         Perform single parameter update
         """
@@ -158,11 +159,11 @@ class MC_EM:
         def update_g(XVV, VV):
             return tf.transpose(self.g) * tf.math.sqrt(self.ones_T * XVV / (self.ones_T * VV))
 
-        V_x_R = var_mixture(self.W, self.H, self.g, var_out_R)
+        V_x_R = var_mixture(self.W, self.H, self.g, var_out_n_R)
         V_sum = tf.reduce_mean(V_x_R, axis=0)
         XV_sq_sum = x_sq * tf.reduce_mean(V_x_R**2, axis=0)
-        XVV = x_sq * tf.reduce_mean(var_out_R / V_x_R**2, axis=0)
-        VV = tf.reduce_mean(var_out_R/V_x_R, axis=0)
+        XVV = x_sq * tf.reduce_mean(var_out_n_R / V_x_R**2, axis=0)
+        VV = tf.reduce_mean(var_out_n_R/V_x_R, axis=0)
 
         H = update_H(XV_sq_sum, V_sum)
         W = update_W(XV_sq_sum, V_sum)
@@ -170,7 +171,12 @@ class MC_EM:
 
         return W, H, g
 
-    def M_step(self, log_var_R):
+    def M_step(self, x_sq, var_out_chain):
+        # Needs to be checked:
+        # + Summation in H update is missing
+        # + Axis ordering var_out_chain
+        # for x_sq, var_out_n_chain in zip(x_sq, var_out_chain):
+        #     self.W, self.H, self.g_t = self.single_M_step(x_sq, var_out_n_chain)
         pass
 
     def run_MC_EM(self,
@@ -193,7 +199,8 @@ class MC_EM:
         if eps_sq == None:
             eps_sq = self.eps_sq
 
-        log_var_R = self.E_step()
+        var_out_chain = self.E_step()
+        self.W, self.H, self.g_T = self.M_step(var_out_chain)
 
         # costs = []
 
